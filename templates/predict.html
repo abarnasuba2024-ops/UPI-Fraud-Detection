@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row g-4">
+
+
+    <div class="col-lg-7">
+
+        <div class="card shadow-sm">
+
+            <div class="card-body">
+
+                <h2>
+                    Check UPI Transaction
+                </h2>
+
+                <p class="text-muted">
+                    Enter transaction information to calculate fraud risk.
+                </p>
+
+
+                <form
+                    method="POST"
+                    class="row g-3"
+                >
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Transaction Amount (₹)
+                        </label>
+
+                        <input
+                            type="number"
+                            name="amount"
+                            class="form-control"
+                            value="1000"
+                            min="0"
+                            step="0.01"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Transaction Hour
+                        </label>
+
+                        <input
+                            type="number"
+                            name="hour"
+                            class="form-control"
+                            value="14"
+                            min="0"
+                            max="23"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Transactions in Last 24 Hours
+                        </label>
+
+                        <input
+                            type="number"
+                            name="transactions_last_24h"
+                            class="form-control"
+                            value="3"
+                            min="0"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Account Age (Days)
+                        </label>
+
+                        <input
+                            type="number"
+                            name="account_age_days"
+                            class="form-control"
+                            value="500"
+                            min="0"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Failed Attempts
+                        </label>
+
+                        <input
+                            type="number"
+                            name="failed_attempts"
+                            class="form-control"
+                            value="0"
+                            min="0"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Previous Fraud Count
+                        </label>
+
+                        <input
+                            type="number"
+                            name="previous_fraud_count"
+                            class="form-control"
+                            value="0"
+                            min="0"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Merchant Risk (1-10)
+                        </label>
+
+                        <input
+                            type="number"
+                            name="merchant_risk"
+                            class="form-control"
+                            value="3"
+                            min="1"
+                            max="10"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Device Changed?
+                        </label>
+
+                        <select
+                            name="device_changed"
+                            class="form-select"
+                        >
+
+                            <option value="0">
+                                No
+                            </option>
+
+                            <option value="1">
+                                Yes
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Location Changed?
+                        </label>
+
+                        <select
+                            name="location_changed"
+                            class="form-select"
+                        >
+
+                            <option value="0">
+                                No
+                            </option>
+
+                            <option value="1">
+                                Yes
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            New Payee?
+                        </label>
+
+                        <select
+                            name="is_new_payee"
+                            class="form-select"
+                        >
+
+                            <option value="0">
+                                No
+                            </option>
+
+                            <option value="1">
+                                Yes
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <div class="col-12">
+
+                        <button
+                            type="submit"
+                            class="btn btn-primary btn-lg"
+                        >
+                            Analyze Transaction
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="col-lg-5">
+
+
+        {% if result %}
+
+
+        <div class="card shadow result-card">
+
+            <div class="card-body text-center">
+
+                <h4>
+                    Prediction Result
+                </h4>
+
+
+                {% if result.prediction == "FRAUD" %}
+
+                    <div class="display-4 fw-bold text-danger">
+                        FRAUD
+                    </div>
+
+                {% else %}
+
+                    <div class="display-4 fw-bold text-success">
+                        LEGITIMATE
+                    </div>
+
+                {% endif %}
+
+
+                <p class="mt-4 mb-1">
+                    Fraud Probability
+                </p>
+
+
+                <div class="display-6">
+
+                    {{ "%.2f"|format(
+                        result.probability
+                    ) }}%
+
+                </div>
+
+
+                <p class="mt-4 mb-1">
+                    Risk Level
+                </p>
+
+
+                {% if result.risk_level == "HIGH" %}
+
+                    <span class="badge bg-danger fs-5">
+                        HIGH
+                    </span>
+
+                {% elif result.risk_level == "MEDIUM" %}
+
+                    <span class="badge bg-warning text-dark fs-5">
+                        MEDIUM
+                    </span>
+
+                {% else %}
+
+                    <span class="badge bg-success fs-5">
+                        LOW
+                    </span>
+
+                {% endif %}
+
+            </div>
+
+        </div>
+
+
+        {% else %}
+
+
+        <div class="card shadow-sm">
+
+            <div class="card-body">
+
+                <h4>
+                    How it works
+                </h4>
+
+                <ol>
+
+                    <li>
+                        Enter transaction information.
+                    </li>
+
+                    <li>
+                        The Random Forest model analyzes the features.
+                    </li>
+
+                    <li>
+                        The system calculates fraud probability.
+                    </li>
+
+                    <li>
+                        A risk level is generated.
+                    </li>
+
+                    <li>
+                        The result is stored in SQLite.
+                    </li>
+
+                </ol>
+
+            </div>
+
+        </div>
+
+
+        {% endif %}
+
+    </div>
+
+</div>
+
+{% endblock %}

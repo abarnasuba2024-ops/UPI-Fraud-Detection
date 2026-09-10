@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row justify-content-center mt-5">
+
+    <div class="col-md-5">
+
+        <div class="card shadow p-4">
+
+            <h2 class="mb-3">
+                UPI Fraud Detection
+            </h2>
+
+            <p class="text-muted">
+                Login to access the fraud monitoring system.
+            </p>
+
+
+            <form method="POST">
+
+                <label class="form-label">
+                    Username
+                </label>
+
+                <input
+                    type="text"
+                    name="username"
+                    class="form-control mb-3"
+                    value="admin"
+                    required
+                >
+
+
+                <label class="form-label">
+                    Password
+                </label>
+
+                <input
+                    type="password"
+                    name="password"
+                    class="form-control mb-3"
+                    value="admin123"
+                    required
+                >
+
+
+                <button
+                    type="submit"
+                    class="btn btn-primary w-100"
+                >
+                    Login
+                </button>
+
+            </form>
+
+
+            <div class="small text-muted mt-3">
+
+                Demo credentials:
+
+                <strong>
+                    admin
+                </strong>
+
+                /
+
+                <strong>
+                    admin123
+                </strong>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

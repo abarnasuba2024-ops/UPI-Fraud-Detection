@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>
+    Transaction History
+</h1>
+
+<p class="text-muted">
+    Previously analyzed transactions.
+</p>
+
+
+<div class="card shadow-sm">
+
+    <div class="card-body">
+
+        <div class="table-responsive">
+
+            <table class="table table-sm align-middle">
+
+                <thead>
+
+                    <tr>
+
+                        <th>
+                            ID
+                        </th>
+
+                        <th>
+                            Time
+                        </th>
+
+                        <th>
+                            Amount
+                        </th>
+
+                        <th>
+                            Fraud Probability
+                        </th>
+
+                        <th>
+                            Prediction
+                        </th>
+
+                        <th>
+                            Risk
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+
+                <tbody>
+
+
+                {% for transaction in transactions %}
+
+
+                    <tr>
+
+                        <td>
+                            {{ transaction.id }}
+                        </td>
+
+                        <td>
+                            {{ transaction.created_at }}
+                        </td>
+
+                        <td>
+                            ₹{{ "%.2f"|format(
+                                transaction.amount
+                            ) }}
+                        </td>
+
+                        <td>
+                            {{ "%.2f"|format(
+                                transaction.fraud_probability * 100
+                            ) }}%
+                        </td>
+
+
+                        <td>
+
+                            {% if transaction.prediction == "FRAUD" %}
+
+                                <span class="badge bg-danger">
+                                    FRAUD
+                                </span>
+
+                            {% else %}
+
+                                <span class="badge bg-success">
+                                    LEGITIMATE
+                                </span>
+
+                            {% endif %}
+
+                        </td>
+
+
+                        <td>
+
+                            {% if transaction.risk_level == "HIGH" %}
+
+                                <span class="badge bg-danger">
+                                    HIGH
+                                </span>
+
+                            {% elif transaction.risk_level == "MEDIUM" %}
+
+                                <span class="badge bg-warning text-dark">
+                                    MEDIUM
+                                </span>
+
+                            {% else %}
+
+                                <span class="badge bg-success">
+                                    LOW
+                                </span>
+
+                            {% endif %}
+
+                        </td>
+
+                    </tr>
+
+
+                {% else %}
+
+
+                    <tr>
+
+                        <td
+                            colspan="6"
+                            class="text-center text-muted"
+                        >
+                            No transaction history.
+                        </td>
+
+                    </tr>
+
+
+                {% endfor %}
+
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

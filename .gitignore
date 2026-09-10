@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+transactions.db
+fraud_model.pkl
+.env

@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+
+    <div>
+
+        <h1>
+            Fraud Detection Dashboard
+        </h1>
+
+        <p class="text-muted">
+            Monitor UPI transaction risk
+        </p>
+
+    </div>
+
+
+    <a
+        href="{{ url_for('predict') }}"
+        class="btn btn-primary"
+    >
+        + Check Transaction
+    </a>
+
+</div>
+
+
+<div class="row g-3">
+
+
+    <div class="col-md-3">
+
+        <div class="card stat-card shadow-sm">
+
+            <div class="card-body">
+
+                <div class="text-muted">
+                    Total Transactions
+                </div>
+
+                <div class="display-6 fw-bold text-primary">
+                    {{ total }}
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="col-md-3">
+
+        <div class="card stat-card shadow-sm">
+
+            <div class="card-body">
+
+                <div class="text-muted">
+                    Fraud Detected
+                </div>
+
+                <div class="display-6 fw-bold text-danger">
+                    {{ fraud }}
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="col-md-3">
+
+        <div class="card stat-card shadow-sm">
+
+            <div class="card-body">
+
+                <div class="text-muted">
+                    Legitimate
+                </div>
+
+                <div class="display-6 fw-bold text-success">
+                    {{ legitimate }}
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="col-md-3">
+
+        <div class="card stat-card shadow-sm">
+
+            <div class="card-body">
+
+                <div class="text-muted">
+                    Fraud Rate
+                </div>
+
+                <div class="display-6 fw-bold text-warning">
+                    {{ "%.1f"|format(fraud_rate) }}%
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<div class="row mt-4">
+
+
+    <div class="col-md-12">
+
+        <div class="card shadow-sm">
+
+            <div class="card-body">
+
+                <h4>
+                    Recent Transactions
+                </h4>
+
+
+                <div class="table-responsive">
+
+                    <table class="table align-middle">
+
+                        <thead>
+
+                            <tr>
+
+                                <th>
+                                    Time
+                                </th>
+
+                                <th>
+                                    Amount
+                                </th>
+
+                                <th>
+                                    Fraud Probability
+                                </th>
+
+                                <th>
+                                    Prediction
+                                </th>
+
+                                <th>
+                                    Risk
+                                </th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody>
+
+                        {% for transaction in recent %}
+
+                            <tr>
+
+                                <td>
+                                    {{ transaction.created_at }}
+                                </td>
+
+                                <td>
+                                    ₹{{ "%.2f"|format(transaction.amount) }}
+                                </td>
+
+                                <td>
+                                    {{ "%.2f"|format(
+                                        transaction.fraud_probability * 100
+                                    ) }}%
+                                </td>
+
+                                <td>
+
+                                    {% if transaction.prediction == "FRAUD" %}
+
+                                        <span class="badge bg-danger">
+                                            FRAUD
+                                        </span>
+
+                                    {% else %}
+
+                                        <span class="badge bg-success">
+                                            LEGITIMATE
+                                        </span>
+
+                                    {% endif %}
+
+                                </td>
+
+
+                                <td>
+
+                                    {% if transaction.risk_level == "HIGH" %}
+
+                                        <span class="badge bg-danger">
+                                            HIGH
+                                        </span>
+
+                                    {% elif transaction.risk_level == "MEDIUM" %}
+
+                                        <span class="badge bg-warning text-dark">
+                                            MEDIUM
+                                        </span>
+
+                                    {% else %}
+
+                                        <span class="badge bg-success">
+                                            LOW
+                                        </span>
+
+                                    {% endif %}
+
+                                </td>
+
+                            </tr>
+
+                        {% else %}
+
+                            <tr>
+
+                                <td
+                                    colspan="5"
+                                    class="text-center text-muted"
+                                >
+                                    No transactions yet.
+                                </td>
+
+                            </tr>
+
+                        {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+{% endblock %}
