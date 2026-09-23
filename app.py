@@ -7,37 +7,25 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from flask import (
-    Flask,
-    request,
-    redirect,
-    url_for,
-    render_template_string
-)
-
+from flask import Flask, request, redirect, url_for, render_template_string
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
+# =========================================================
+# APP CONFIGURATION
+# =========================================================
+
+app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_FILE = os.path.join(BASE_DIR, "fraud_model.pkl")
 DATABASE_FILE = os.path.join(BASE_DIR, "transactions.db")
 
-HOST = "127.0.0.1"
-PORT = 5000
-
-app = Flask(__name__)
-
-
-# ============================================================
-# MACHINE LEARNING FEATURES
-# ============================================================
+HOST = "0.0.0.0"
+PORT = int(os.environ.get("PORT", 5000))
 
 FEATURES = [
     "amount",
@@ -53,136 +41,94 @@ FEATURES = [
 ]
 
 
-# ============================================================
-# GENERATE SYNTHETIC DATASET
-# ============================================================
+# =========================================================
+# MACHINE LEARNING DATASET
+# =========================================================
 
 def generate_dataset(n=12000, seed=42):
 
     rng = np.random.default_rng(seed)
 
-    amount = np.round(
-        np.clip(
-            rng.lognormal(7.0, 1.0, n),
-            10,
-            250000
-        ),
-        2
-    )
+    amount = rng.lognormal(mean=6.0, sigma=1.0, size=n)
+    amount = np.clip(amount, 10, 100000)
 
     hour = rng.integers(0, 24, n)
 
-    transactions_last_24h = rng.poisson(3, n)
-
-    device_changed = rng.binomial(
-        1,
-        0.10,
-        n
+    transactions_last_24h = rng.poisson(4, n)
+    transactions_last_24h = np.clip(
+        transactions_last_24h, 0, 30
     )
 
-    location_changed = rng.binomial(
-        1,
-        0.08,
-        n
-    )
+    device_changed = rng.binomial(1, 0.12, n)
+
+    location_changed = rng.binomial(1, 0.10, n)
 
     account_age_days = rng.integers(
-        1,
-        2500,
-        n
+        1, 2500, n
     )
 
+    failed_attempts = rng.poisson(0.5, n)
     failed_attempts = np.clip(
-        rng.poisson(0.35, n),
-        0,
-        8
+        failed_attempts, 0, 8
     )
 
+    previous_fraud_count = rng.poisson(0.15, n)
     previous_fraud_count = np.clip(
-        rng.poisson(0.08, n),
-        0,
-        5
+        previous_fraud_count, 0, 5
     )
 
-    merchant_risk = rng.integers(
-        1,
-        11,
-        n
-    )
+    merchant_risk = rng.uniform(0, 1, n)
 
-    is_new_payee = rng.binomial(
-        1,
-        0.20,
-        n
-    )
-
-    night_transaction = (
-        (hour <= 5) |
-        (hour >= 23)
-    ).astype(int)
+    is_new_payee = rng.binomial(1, 0.18, n)
 
     # Fraud scoring logic
-    logit = (
-        -5.0
-        + 0.000018 * amount
-        + 0.16 * transactions_last_24h
-        + 1.65 * device_changed
-        + 1.35 * location_changed
-        - 0.00035 * account_age_days
-        + 0.42 * failed_attempts
-        + 1.15 * previous_fraud_count
-        + 0.20 * merchant_risk
-        + 1.10 * is_new_payee
-        + 0.65 * night_transaction
+    score = (
+        -3.2
+        + 0.000025 * amount
+        + 0.07 * transactions_last_24h
+        + 1.10 * device_changed
+        + 0.90 * location_changed
+        - 0.00025 * account_age_days
+        + 0.40 * failed_attempts
+        + 0.70 * previous_fraud_count
+        + 2.00 * merchant_risk
+        + 0.90 * is_new_payee
+        + 0.45 * ((hour <= 5) | (hour >= 23))
     )
 
-    probability = 1 / (
-        1 + np.exp(-logit)
-    )
+    probability = 1 / (1 + np.exp(-score))
 
-    fraud = rng.binomial(
-        1,
-        probability
-    )
+    fraud = rng.binomial(1, probability)
 
     data = pd.DataFrame({
         "amount": amount,
         "hour": hour,
-        "transactions_last_24h":
-            transactions_last_24h,
-        "device_changed":
-            device_changed,
-        "location_changed":
-            location_changed,
-        "account_age_days":
-            account_age_days,
-        "failed_attempts":
-            failed_attempts,
-        "previous_fraud_count":
-            previous_fraud_count,
-        "merchant_risk":
-            merchant_risk,
-        "is_new_payee":
-            is_new_payee,
+        "transactions_last_24h": transactions_last_24h,
+        "device_changed": device_changed,
+        "location_changed": location_changed,
+        "account_age_days": account_age_days,
+        "failed_attempts": failed_attempts,
+        "previous_fraud_count": previous_fraud_count,
+        "merchant_risk": merchant_risk,
+        "is_new_payee": is_new_payee,
         "fraud": fraud
     })
 
     return data
 
 
-# ============================================================
-# TRAIN MACHINE LEARNING MODEL
-# ============================================================
+# =========================================================
+# TRAIN MODEL
+# =========================================================
 
 def train_model():
 
-    print()
-    print("Generating dataset...")
+    print("Training fraud detection model...")
 
-    df = generate_dataset()
+    data = generate_dataset()
 
-    X = df[FEATURES]
-    y = df["fraud"]
+    X = data[FEATURES]
+    y = data["fraud"]
 
     X_train, X_test, y_train, y_test = train_test_split(
         X,
@@ -191,8 +137,6 @@ def train_model():
         random_state=42,
         stratify=y
     )
-
-    print("Training Random Forest model...")
 
     model = RandomForestClassifier(
         n_estimators=250,
@@ -203,10 +147,7 @@ def train_model():
         n_jobs=-1
     )
 
-    model.fit(
-        X_train,
-        y_train
-    )
+    model.fit(X_train, y_train)
 
     predictions = model.predict(X_test)
 
@@ -216,40 +157,36 @@ def train_model():
     )
 
     print(
-        "Model accuracy:",
-        round(accuracy * 100, 2),
-        "%"
+        f"Model accuracy: {accuracy * 100:.2f}%"
     )
 
-    joblib.dump(
-        model,
-        MODEL_FILE
-    )
-
-    print("Model saved successfully.")
+    joblib.dump(model, MODEL_FILE)
 
     return model
 
 
-# ============================================================
-# LOAD MODEL
-# ============================================================
-
 def get_model():
 
-    if not os.path.exists(MODEL_FILE):
+    if os.path.exists(MODEL_FILE):
 
-        return train_model()
+        try:
+            return joblib.load(MODEL_FILE)
 
-    return joblib.load(MODEL_FILE)
+        except Exception:
+
+            print(
+                "Existing model could not be loaded. Retraining..."
+            )
+
+    return train_model()
 
 
 model = get_model()
 
 
-# ============================================================
+# =========================================================
 # DATABASE
-# ============================================================
+# =========================================================
 
 def init_database():
 
@@ -257,286 +194,605 @@ def init_database():
         DATABASE_FILE
     )
 
-    connection.execute("""
+    cursor = connection.cursor()
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
-
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-            created_at TEXT,
-
+            timestamp TEXT,
             amount REAL,
-
             hour INTEGER,
-
             transactions_last_24h INTEGER,
-
             device_changed INTEGER,
-
             location_changed INTEGER,
-
             account_age_days INTEGER,
-
             failed_attempts INTEGER,
-
             previous_fraud_count INTEGER,
-
-            merchant_risk INTEGER,
-
+            merchant_risk REAL,
             is_new_payee INTEGER,
-
             fraud_probability REAL,
-
             prediction TEXT,
-
             risk_level TEXT
-
         )
     """)
 
     connection.commit()
-
     connection.close()
 
 
 init_database()
 
 
-# ============================================================
-# COMMON HTML
-# ============================================================
+# =========================================================
+# COMMON CSS
+# =========================================================
 
 CSS = """
-
 <style>
 
 * {
     box-sizing: border-box;
 }
 
-body {
-    margin: 0;
-    font-family: Arial, Helvetica, sans-serif;
-    background: #f4f7fb;
-    color: #222;
+html {
+    width: 100%;
+    overflow-x: hidden;
 }
 
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    background: #f4f7fb;
+    color: #17233c;
+    font-family: Georgia, "Times New Roman", serif;
+    overflow-x: hidden;
+}
+
+
+/* ================= NAVBAR ================= */
+
 .navbar {
-    background: #111827;
+    width: 100%;
+    min-height: 70px;
+    background: #101a2d;
     color: white;
-    padding: 18px 40px;
+
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+
+    padding: 15px 5%;
+
+    gap: 20px;
 }
 
 .logo {
-    font-size: 23px;
+    font-size: 24px;
     font-weight: bold;
+    white-space: nowrap;
+}
+
+.logo span {
+    margin-right: 8px;
+}
+
+.nav-links {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 25px;
+    flex-wrap: wrap;
 }
 
 .nav-links a {
     color: white;
     text-decoration: none;
-    margin-left: 25px;
-    font-size: 15px;
+    font-size: 16px;
 }
+
+.nav-links a:hover {
+    color: #5da9ff;
+}
+
+
+/* ================= MAIN CONTAINER ================= */
 
 .container {
-    width: 92%;
-    max-width: 1200px;
-    margin: 30px auto;
+    width: 100%;
+    max-width: 1400px;
+
+    margin: 0 auto;
+
+    padding: 45px 5%;
 }
 
+
+/* ================= HEADINGS ================= */
+
 h1 {
-    margin-bottom: 5px;
+    margin: 0 0 12px;
+
+    font-size: 44px;
+    line-height: 1.2;
+
+    color: #16233d;
 }
 
 .subtitle {
-    color: #6b7280;
+    color: #6d7d96;
+
+    font-size: 19px;
+
+    margin-bottom: 35px;
 }
 
-.cards {
+
+/* ================= STAT CARDS ================= */
+
+.stats {
+    width: 100%;
+
     display: grid;
+
     grid-template-columns:
-        repeat(4, 1fr);
-    gap: 20px;
-    margin-top: 30px;
+        repeat(4, minmax(0, 1fr));
+
+    gap: 22px;
+
+    margin-bottom: 35px;
 }
 
 .card {
     background: white;
-    padding: 25px;
+
     border-radius: 15px;
+
+    padding: 30px;
+
+    min-height: 145px;
+
     box-shadow:
-        0 4px 15px rgba(0,0,0,0.08);
+        0 8px 25px rgba(25, 45, 80, 0.08);
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .card-title {
-    color: #6b7280;
-    font-size: 14px;
+    color: #65738a;
+    font-size: 17px;
+    margin-bottom: 12px;
 }
 
 .card-value {
-    font-size: 32px;
+    font-size: 42px;
     font-weight: bold;
-    margin-top: 10px;
 }
 
 .blue {
-    color: #2563eb;
+    color: #1769e0;
 }
 
 .red {
-    color: #dc2626;
+    color: #d62929;
 }
 
 .green {
-    color: #16a34a;
+    color: #169b50;
 }
 
 .orange {
-    color: #ea580c;
+    color: #df6c13;
 }
 
-.form-card {
+
+/* ================= SECTION ================= */
+
+.section {
     background: white;
-    padding: 30px;
+
     border-radius: 15px;
+
+    padding: 35px;
+
+    margin-top: 25px;
+
     box-shadow:
-        0 4px 15px rgba(0,0,0,0.08);
-    margin-top: 25px;
+        0 8px 25px rgba(25, 45, 80, 0.08);
+
+    overflow-x: auto;
 }
 
-.form-grid {
-    display: grid;
-    grid-template-columns:
-        repeat(2, 1fr);
-    gap: 18px;
+.section-title {
+    font-size: 30px;
+
+    margin-bottom: 25px;
+
+    color: #17233c;
 }
 
-.form-group {
-    display: flex;
-    flex-direction: column;
-}
 
-label {
-    font-weight: bold;
-    margin-bottom: 7px;
-}
+/* ================= TABLE ================= */
 
-input,
-select {
-    padding: 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    font-size: 15px;
-}
-
-button {
-    margin-top: 25px;
-    padding: 13px 25px;
-    border: none;
-    border-radius: 8px;
-    background: #2563eb;
-    color: white;
-    font-size: 16px;
-    cursor: pointer;
-}
-
-button:hover {
-    background: #1d4ed8;
-}
-
-.result {
-    margin-top: 25px;
-    padding: 30px;
-    background: white;
-    border-radius: 15px;
-    text-align: center;
-    box-shadow:
-        0 4px 15px rgba(0,0,0,0.08);
-}
-
-.fraud {
-    color: #dc2626;
-}
-
-.legitimate {
-    color: #16a34a;
-}
-
-.high {
-    background: #dc2626;
-    color: white;
-}
-
-.medium {
-    background: #f59e0b;
-    color: white;
-}
-
-.low {
-    background: #16a34a;
-    color: white;
-}
-
-.badge {
-    display: inline-block;
-    padding: 8px 18px;
-    border-radius: 20px;
-    font-weight: bold;
+.table-wrapper {
+    width: 100%;
+    overflow-x: auto;
 }
 
 table {
     width: 100%;
-    border-collapse: collapse;
-    background: white;
-    margin-top: 25px;
-}
 
-th,
-td {
-    padding: 14px;
-    border-bottom: 1px solid #e5e7eb;
-    text-align: left;
+    border-collapse: collapse;
+
+    min-width: 650px;
 }
 
 th {
-    background: #f9fafb;
+    background: #f5f7fa;
+
+    color: #34435c;
+
+    text-align: left;
+
+    padding: 15px;
+
+    font-size: 15px;
 }
 
-@media(max-width: 800px) {
+td {
+    padding: 15px;
 
-    .cards {
-        grid-template-columns:
-            repeat(2, 1fr);
+    border-bottom: 1px solid #edf0f4;
+
+    color: #536176;
+}
+
+.empty {
+    text-align: center;
+
+    padding: 45px;
+
+    color: #6d7d96;
+}
+
+
+/* ================= FORM ================= */
+
+.form-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+
+    gap: 20px;
+}
+
+.form-group {
+    display: flex;
+
+    flex-direction: column;
+}
+
+.form-group label {
+    margin-bottom: 8px;
+
+    color: #34435c;
+
+    font-weight: bold;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+
+    padding: 13px;
+
+    border: 1px solid #d8dee8;
+
+    border-radius: 8px;
+
+    font-size: 15px;
+
+    background: white;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+
+    border-color: #1769e0;
+}
+
+
+/* ================= BUTTON ================= */
+
+.button {
+    display: inline-block;
+
+    border: none;
+
+    border-radius: 8px;
+
+    padding: 14px 24px;
+
+    margin-top: 25px;
+
+    background: #1769e0;
+
+    color: white;
+
+    font-size: 16px;
+
+    cursor: pointer;
+
+    text-decoration: none;
+}
+
+.button:hover {
+    background: #0d55bd;
+}
+
+
+/* ================= RESULT ================= */
+
+.result {
+    background: white;
+
+    border-radius: 15px;
+
+    padding: 35px;
+
+    margin-top: 30px;
+
+    box-shadow:
+        0 8px 25px rgba(25, 45, 80, 0.08);
+}
+
+.result-title {
+    font-size: 30px;
+
+    margin-bottom: 20px;
+}
+
+.result-item {
+    margin: 12px 0;
+
+    font-size: 18px;
+}
+
+.high {
+    color: #d62929;
+    font-weight: bold;
+}
+
+.medium {
+    color: #df6c13;
+    font-weight: bold;
+}
+
+.low {
+    color: #169b50;
+    font-weight: bold;
+}
+
+
+/* ================= FOOTER ================= */
+
+.footer {
+    text-align: center;
+
+    color: #8290a6;
+
+    padding: 35px 20px;
+
+    margin-top: 30px;
+
+    border-top: 1px solid #dce2eb;
+}
+
+
+/* =========================================================
+   MOBILE RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+    .navbar {
+        width: 100%;
+
+        padding: 15px 20px;
+
+        flex-direction: column;
+
+        align-items: center;
+
+        justify-content: center;
+
+        gap: 14px;
+
+        text-align: center;
     }
+
+    .logo {
+        font-size: 23px;
+    }
+
+    .nav-links {
+        width: 100%;
+
+        justify-content: center;
+
+        gap: 12px 20px;
+    }
+
+    .nav-links a {
+        font-size: 15px;
+    }
+
+
+    .container {
+        width: 100%;
+
+        max-width: 100%;
+
+        padding: 30px 24px;
+    }
+
+
+    h1 {
+        font-size: 34px;
+
+        line-height: 1.2;
+    }
+
+    .subtitle {
+        font-size: 17px;
+
+        line-height: 1.5;
+
+        margin-bottom: 25px;
+    }
+
+
+    /* 2 x 2 cards */
+
+    .stats {
+        grid-template-columns: 1fr 1fr;
+
+        gap: 16px;
+    }
+
+    .card {
+        width: 100%;
+
+        min-width: 0;
+
+        min-height: 150px;
+
+        padding: 22px 18px;
+    }
+
+    .card-title {
+        font-size: 15px;
+    }
+
+    .card-value {
+        font-size: 38px;
+    }
+
+
+    .section {
+        width: 100%;
+
+        padding: 25px 20px;
+
+        margin-top: 25px;
+
+        overflow-x: auto;
+    }
+
+    .section-title {
+        font-size: 27px;
+    }
+
 
     .form-grid {
         grid-template-columns: 1fr;
     }
+
+
+    .footer {
+        font-size: 14px;
+    }
+}
+
+
+/* ================= SMALL MOBILE ================= */
+
+@media (max-width: 480px) {
+
+    .container {
+        padding: 25px 18px;
+    }
+
+    h1 {
+        font-size: 30px;
+    }
+
+    .subtitle {
+        font-size: 16px;
+    }
+
+    .navbar {
+        padding: 14px 12px;
+    }
+
+    .logo {
+        font-size: 21px;
+    }
+
+    .nav-links {
+        gap: 10px 14px;
+    }
+
+    .nav-links a {
+        font-size: 14px;
+    }
+
+    .stats {
+        grid-template-columns: 1fr 1fr;
+
+        gap: 12px;
+    }
+
+    .card {
+        padding: 20px 14px;
+
+        min-height: 135px;
+    }
+
+    .card-title {
+        font-size: 14px;
+    }
+
+    .card-value {
+        font-size: 34px;
+    }
+
+    .section {
+        padding: 22px 16px;
+    }
+
+    .section-title {
+        font-size: 24px;
+    }
 }
 
 </style>
-
 """
 
 
-# ============================================================
-# DASHBOARD HTML
-# ============================================================
+# =========================================================
+# BASE HTML
+# =========================================================
 
-DASHBOARD_HTML = """
-
+BASE_HTML = """
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
 
 <head>
 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
 
-    <title>UPI Fraud Detection</title>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>{{ title }}</title>
 
     {{ css|safe }}
 
@@ -544,30 +800,50 @@ DASHBOARD_HTML = """
 
 <body>
 
-<div class="navbar">
+    <div class="navbar">
 
-    <div class="logo">
-        🛡️ UPI FraudGuard
+        <div class="logo">
+            🛡️ UPI FraudGuard
+        </div>
+
+        <div class="nav-links">
+
+            <a href="{{ url_for('dashboard') }}">
+                Dashboard
+            </a>
+
+            <a href="{{ url_for('predict') }}">
+                Check Transaction
+            </a>
+
+            <a href="{{ url_for('history') }}">
+                History
+            </a>
+
+        </div>
+
     </div>
 
-    <div class="nav-links">
 
-        <a href="/">
-            Dashboard
-        </a>
+    {{ content|safe }}
 
-        <a href="/predict">
-            Check Transaction
-        </a>
 
-        <a href="/history">
-            History
-        </a>
-
+    <div class="footer">
+        UPI FraudGuard &nbsp; | &nbsp;
+        Secure Transactions. Safer Tomorrow.
     </div>
 
-</div>
+</body>
 
+</html>
+"""
+
+
+# =========================================================
+# DASHBOARD
+# =========================================================
+
+DASHBOARD_CONTENT = """
 
 <div class="container">
 
@@ -575,12 +851,12 @@ DASHBOARD_HTML = """
         UPI Fraud Detection Dashboard
     </h1>
 
-    <p class="subtitle">
+    <div class="subtitle">
         Machine Learning Based Transaction Risk Monitoring
-    </p>
+    </div>
 
 
-    <div class="cards">
+    <div class="stats">
 
         <div class="card">
 
@@ -628,7 +904,7 @@ DASHBOARD_HTML = """
             </div>
 
             <div class="card-value orange">
-                {{ "%.1f"|format(fraud_rate) }}%
+                {{ fraud_rate }}%
             </div>
 
         </div>
@@ -636,180 +912,93 @@ DASHBOARD_HTML = """
     </div>
 
 
-    <div class="form-card">
+    <div class="section">
 
-        <h2>
+        <div class="section-title">
             Recent Transactions
-        </h2>
+        </div>
 
-        <table>
+        <div class="table-wrapper">
 
-            <tr>
+            <table>
 
-                <th>
-                    Time
-                </th>
+                <thead>
 
-                <th>
-                    Amount
-                </th>
+                    <tr>
+                        <th>Time</th>
+                        <th>Amount</th>
+                        <th>Probability</th>
+                        <th>Prediction</th>
+                        <th>Risk</th>
+                    </tr>
 
-                <th>
-                    Probability
-                </th>
+                </thead>
 
-                <th>
-                    Prediction
-                </th>
+                <tbody>
 
-                <th>
-                    Risk
-                </th>
+                {% if transactions %}
 
-            </tr>
+                    {% for row in transactions %}
 
+                    <tr>
 
-            {% for t in recent %}
+                        <td>
+                            {{ row[1] }}
+                        </td>
 
-            <tr>
+                        <td>
+                            ₹{{ "%.2f"|format(row[2]) }}
+                        </td>
 
-                <td>
-                    {{ t["created_at"] }}
-                </td>
+                        <td>
+                            {{ "%.2f"|format(row[13] * 100) }}%
+                        </td>
 
-                <td>
-                    ₹{{ "%.2f"|format(t["amount"]) }}
-                </td>
+                        <td>
+                            {{ row[14] }}
+                        </td>
 
-                <td>
-                    {{ "%.2f"|format(
-                        t["fraud_probability"] * 100
-                    ) }}%
-                </td>
+                        <td>
+                            {{ row[15] }}
+                        </td>
 
-                <td>
+                    </tr>
 
-                    {% if t["prediction"] == "FRAUD" %}
+                    {% endfor %}
 
-                    <span class="badge fraud">
-                        FRAUD
-                    </span>
+                {% else %}
 
-                    {% else %}
+                    <tr>
 
-                    <span class="badge legitimate">
-                        LEGITIMATE
-                    </span>
+                        <td
+                            colspan="5"
+                            class="empty"
+                        >
+                            No transactions yet.
+                        </td>
 
-                    {% endif %}
+                    </tr>
 
-                </td>
+                {% endif %}
 
-                <td>
+                </tbody>
 
-                    {% if t["risk_level"] == "HIGH" %}
+            </table>
 
-                    <span class="badge high">
-                        HIGH
-                    </span>
-
-                    {% elif t["risk_level"] == "MEDIUM" %}
-
-                    <span class="badge medium">
-                        MEDIUM
-                    </span>
-
-                    {% else %}
-
-                    <span class="badge low">
-                        LOW
-                    </span>
-
-                    {% endif %}
-
-                </td>
-
-            </tr>
-
-            {% endfor %}
-
-
-            {% if not recent %}
-
-            <tr>
-
-                <td
-                    colspan="5"
-                    style="text-align:center"
-                >
-
-                    No transactions yet.
-
-                </td>
-
-            </tr>
-
-            {% endif %}
-
-        </table>
+        </div>
 
     </div>
 
 </div>
-
-</body>
-
-</html>
 
 """
 
 
-# ============================================================
+# =========================================================
 # PREDICTION PAGE
-# ============================================================
+# =========================================================
 
-PREDICT_HTML = """
-
-<!DOCTYPE html>
-
-<html>
-
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Check Transaction</title>
-
-{{ css|safe }}
-
-</head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<body>
-
-<div class="navbar">
-
-    <div class="logo">
-        🛡️ UPI FraudGuard
-    </div>
-
-    <div class="nav-links">
-
-        <a href="/">
-            Dashboard
-        </a>
-
-        <a href="/predict">
-            Check Transaction
-        </a>
-
-        <a href="/history">
-            History
-        </a>
-
-    </div>
-
-</div>
-
+PREDICT_CONTENT = """
 
 <div class="container">
 
@@ -817,12 +1006,12 @@ PREDICT_HTML = """
         Check UPI Transaction
     </h1>
 
-    <p class="subtitle">
-        Enter transaction details for fraud analysis.
-    </p>
+    <div class="subtitle">
+        Enter transaction details to estimate fraud risk.
+    </div>
 
 
-    <div class="form-card">
+    <div class="section">
 
         <form method="POST">
 
@@ -832,16 +1021,16 @@ PREDICT_HTML = """
                 <div class="form-group">
 
                     <label>
-                        Transaction Amount (₹)
+                        Transaction Amount
                     </label>
 
                     <input
                         type="number"
                         name="amount"
-                        value="1000"
-                        min="1"
                         step="0.01"
+                        min="1"
                         required
+                        placeholder="Example: 5000"
                     >
 
                 </div>
@@ -850,16 +1039,16 @@ PREDICT_HTML = """
                 <div class="form-group">
 
                     <label>
-                        Transaction Hour (0-23)
+                        Transaction Hour
                     </label>
 
                     <input
                         type="number"
                         name="hour"
-                        value="14"
                         min="0"
                         max="23"
                         required
+                        placeholder="0 - 23"
                     >
 
                 </div>
@@ -874,78 +1063,9 @@ PREDICT_HTML = """
                     <input
                         type="number"
                         name="transactions_last_24h"
-                        value="3"
                         min="0"
                         required
-                    >
-
-                </div>
-
-
-                <div class="form-group">
-
-                    <label>
-                        Account Age (Days)
-                    </label>
-
-                    <input
-                        type="number"
-                        name="account_age_days"
-                        value="500"
-                        min="1"
-                        required
-                    >
-
-                </div>
-
-
-                <div class="form-group">
-
-                    <label>
-                        Failed Attempts
-                    </label>
-
-                    <input
-                        type="number"
-                        name="failed_attempts"
-                        value="0"
-                        min="0"
-                        required
-                    >
-
-                </div>
-
-
-                <div class="form-group">
-
-                    <label>
-                        Previous Fraud Count
-                    </label>
-
-                    <input
-                        type="number"
-                        name="previous_fraud_count"
-                        value="0"
-                        min="0"
-                        required
-                    >
-
-                </div>
-
-
-                <div class="form-group">
-
-                    <label>
-                        Merchant Risk (1-10)
-                    </label>
-
-                    <input
-                        type="number"
-                        name="merchant_risk"
-                        value="3"
-                        min="1"
-                        max="10"
-                        required
+                        placeholder="Example: 5"
                     >
 
                 </div>
@@ -996,6 +1116,76 @@ PREDICT_HTML = """
                 <div class="form-group">
 
                     <label>
+                        Account Age (Days)
+                    </label>
+
+                    <input
+                        type="number"
+                        name="account_age_days"
+                        min="1"
+                        required
+                        placeholder="Example: 500"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label>
+                        Failed Attempts
+                    </label>
+
+                    <input
+                        type="number"
+                        name="failed_attempts"
+                        min="0"
+                        required
+                        placeholder="Example: 1"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label>
+                        Previous Fraud Count
+                    </label>
+
+                    <input
+                        type="number"
+                        name="previous_fraud_count"
+                        min="0"
+                        required
+                        placeholder="Example: 0"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label>
+                        Merchant Risk
+                    </label>
+
+                    <input
+                        type="number"
+                        name="merchant_risk"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        required
+                        placeholder="0.00 - 1.00"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label>
                         New Payee?
                     </label>
 
@@ -1013,14 +1203,14 @@ PREDICT_HTML = """
 
                 </div>
 
-
             </div>
 
 
-            <button type="submit">
-
-                🔍 Analyze Transaction
-
+            <button
+                type="submit"
+                class="button"
+            >
+                Analyze Transaction
             </button>
 
         </form>
@@ -1032,114 +1222,80 @@ PREDICT_HTML = """
 
     <div class="result">
 
-        {% if result.prediction == "FRAUD" %}
-
-        <h1 class="fraud">
-            🚨 FRAUD DETECTED
-        </h1>
-
-        {% else %}
-
-        <h1 class="legitimate">
-            ✅ LEGITIMATE TRANSACTION
-        </h1>
-
-        {% endif %}
+        <div class="result-title">
+            Prediction Result
+        </div>
 
 
-        <h2>
+        <div class="result-item">
             Fraud Probability:
-            {{ "%.2f"|format(
-                result.probability
-            ) }}%
-        </h2>
+            <strong>
+                {{ probability }}%
+            </strong>
+        </div>
 
 
-        <h3>
-            Risk Level
-        </h3>
+        <div class="result-item">
+
+            Prediction:
+
+            {% if prediction == "FRAUD" %}
+
+                <strong class="high">
+                    FRAUD
+                </strong>
+
+            {% else %}
+
+                <strong class="low">
+                    LEGITIMATE
+                </strong>
+
+            {% endif %}
+
+        </div>
 
 
-        {% if result.risk_level == "HIGH" %}
+        <div class="result-item">
 
-        <span class="badge high">
-            HIGH RISK
-        </span>
+            Risk Level:
 
-        {% elif result.risk_level == "MEDIUM" %}
+            {% if risk == "HIGH" %}
 
-        <span class="badge medium">
-            MEDIUM RISK
-        </span>
+                <strong class="high">
+                    HIGH
+                </strong>
 
-        {% else %}
+            {% elif risk == "MEDIUM" %}
 
-        <span class="badge low">
-            LOW RISK
-        </span>
+                <strong class="medium">
+                    MEDIUM
+                </strong>
 
-        {% endif %}
+            {% else %}
+
+                <strong class="low">
+                    LOW
+                </strong>
+
+            {% endif %}
+
+        </div>
 
     </div>
 
     {% endif %}
 
-
 </div>
-
-</body>
-
-</html>
 
 """
 
 
-# ============================================================
+# =========================================================
 # HISTORY PAGE
-# ============================================================
+# =========================================================
 
-HISTORY_HTML = """
-
-<!DOCTYPE html>
-
-<html>
-
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Transaction History</title>
-
-{{ css|safe }}
-
-</head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<body>
-
-<div class="navbar">
-
-    <div class="logo">
-        🛡️ UPI FraudGuard
-    </div>
-
-    <div class="nav-links">
-
-        <a href="/">
-            Dashboard
-        </a>
-
-        <a href="/predict">
-            Check Transaction
-        </a>
-
-        <a href="/history">
-            History
-        </a>
-
-    </div>
-
-</div>
-
+HISTORY_CONTENT = """
 
 <div class="container">
 
@@ -1147,130 +1303,99 @@ HISTORY_HTML = """
         Transaction History
     </h1>
 
-    <p class="subtitle">
-        Previously analyzed transactions
-    </p>
+    <div class="subtitle">
+        Previously analyzed UPI transactions
+    </div>
 
 
-    <table>
+    <div class="section">
 
-        <tr>
+        <div class="table-wrapper">
 
-            <th>ID</th>
+            <table>
 
-            <th>Date & Time</th>
+                <thead>
 
-            <th>Amount</th>
+                    <tr>
 
-            <th>Fraud Probability</th>
+                        <th>ID</th>
+                        <th>Time</th>
+                        <th>Amount</th>
+                        <th>Probability</th>
+                        <th>Prediction</th>
+                        <th>Risk</th>
 
-            <th>Prediction</th>
+                    </tr>
 
-            <th>Risk</th>
+                </thead>
 
-        </tr>
+                <tbody>
 
+                {% if transactions %}
 
-        {% for t in transactions %}
+                    {% for row in transactions %}
 
-        <tr>
+                    <tr>
 
-            <td>
-                {{ t["id"] }}
-            </td>
+                        <td>
+                            {{ row[0] }}
+                        </td>
 
-            <td>
-                {{ t["created_at"] }}
-            </td>
+                        <td>
+                            {{ row[1] }}
+                        </td>
 
-            <td>
-                ₹{{ "%.2f"|format(t["amount"]) }}
-            </td>
+                        <td>
+                            ₹{{ "%.2f"|format(row[2]) }}
+                        </td>
 
-            <td>
-                {{ "%.2f"|format(
-                    t["fraud_probability"] * 100
-                ) }}%
-            </td>
+                        <td>
+                            {{ "%.2f"|format(row[13] * 100) }}%
+                        </td>
 
-            <td>
+                        <td>
+                            {{ row[14] }}
+                        </td>
 
-                {% if t["prediction"] == "FRAUD" %}
+                        <td>
+                            {{ row[15] }}
+                        </td>
 
-                <span class="badge fraud">
-                    FRAUD
-                </span>
+                    </tr>
 
-                {% else %}
-
-                <span class="badge legitimate">
-                    LEGITIMATE
-                </span>
-
-                {% endif %}
-
-            </td>
-
-            <td>
-
-                {% if t["risk_level"] == "HIGH" %}
-
-                <span class="badge high">
-                    HIGH
-                </span>
-
-                {% elif t["risk_level"] == "MEDIUM" %}
-
-                <span class="badge medium">
-                    MEDIUM
-                </span>
+                    {% endfor %}
 
                 {% else %}
 
-                <span class="badge low">
-                    LOW
-                </span>
+                    <tr>
+
+                        <td
+                            colspan="6"
+                            class="empty"
+                        >
+                            No transactions found.
+                        </td>
+
+                    </tr>
 
                 {% endif %}
 
-            </td>
+                </tbody>
 
-        </tr>
+            </table>
 
-        {% endfor %}
+        </div>
 
-
-        {% if not transactions %}
-
-        <tr>
-
-            <td
-                colspan="6"
-                style="text-align:center"
-            >
-
-                No transactions found.
-
-            </td>
-
-        </tr>
-
-        {% endif %}
-
-    </table>
+    </div>
 
 </div>
-
-</body>
-
-</html>
 
 """
 
 
-# ============================================================
+# =========================================================
 # DASHBOARD ROUTE
-# ============================================================
+# =========================================================
 
 @app.route("/")
 def dashboard():
@@ -1279,57 +1404,69 @@ def dashboard():
         DATABASE_FILE
     )
 
-    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
 
-    total = connection.execute(
-        "SELECT COUNT(*) AS count FROM transactions"
-    ).fetchone()["count"]
+    cursor.execute(
+        "SELECT COUNT(*) FROM transactions"
+    )
 
-    fraud = connection.execute(
+    total = cursor.fetchone()[0]
+
+    cursor.execute(
         """
-        SELECT COUNT(*) AS count
+        SELECT COUNT(*)
         FROM transactions
         WHERE prediction = 'FRAUD'
         """
-    ).fetchone()["count"]
+    )
+
+    fraud = cursor.fetchone()[0]
 
     legitimate = total - fraud
 
-    if total > 0:
+    fraud_rate = (
+        round((fraud / total) * 100, 2)
+        if total > 0
+        else 0
+    )
 
-        fraud_rate = (
-            fraud / total
-        ) * 100
-
-    else:
-
-        fraud_rate = 0
-
-    recent = connection.execute(
+    cursor.execute(
         """
         SELECT *
         FROM transactions
         ORDER BY id DESC
         LIMIT 10
         """
-    ).fetchall()
+    )
+
+    transactions = cursor.fetchall()
 
     connection.close()
 
-    return render_template_string(
-        DASHBOARD_HTML,
-        css=CSS,
+
+    content = render_template_string(
+        DASHBOARD_CONTENT,
+
         total=total,
         fraud=fraud,
         legitimate=legitimate,
         fraud_rate=fraud_rate,
-        recent=recent
+        transactions=transactions
     )
 
 
-# ============================================================
-# PREDICTION ROUTE
-# ============================================================
+    return render_template_string(
+        BASE_HTML,
+
+        title="UPI Fraud Detection",
+        css=CSS,
+        content=content
+    )
+
+
+# =========================================================
+# PREDICT ROUTE
+# =========================================================
 
 @app.route(
     "/predict",
@@ -1337,7 +1474,12 @@ def dashboard():
 )
 def predict():
 
-    result = None
+    result = False
+
+    probability = 0
+    prediction = ""
+    risk = ""
+
 
     if request.method == "POST":
 
@@ -1358,9 +1500,7 @@ def predict():
             )
 
             device_changed = int(
-                request.form[
-                    "device_changed"
-                ]
+                request.form["device_changed"]
             )
 
             location_changed = int(
@@ -1387,66 +1527,47 @@ def predict():
                 ]
             )
 
-            merchant_risk = int(
-                request.form[
-                    "merchant_risk"
-                ]
+            merchant_risk = float(
+                request.form["merchant_risk"]
             )
 
             is_new_payee = int(
-                request.form[
-                    "is_new_payee"
-                ]
+                request.form["is_new_payee"]
             )
 
 
-            values = {
-
-                "amount": amount,
-
-                "hour": hour,
-
-                "transactions_last_24h":
-                    transactions_last_24h,
-
-                "device_changed":
-                    device_changed,
-
-                "location_changed":
-                    location_changed,
-
-                "account_age_days":
-                    account_age_days,
-
-                "failed_attempts":
-                    failed_attempts,
-
-                "previous_fraud_count":
-                    previous_fraud_count,
-
-                "merchant_risk":
-                    merchant_risk,
-
-                "is_new_payee":
-                    is_new_payee
-
-            }
+            values = [[
+                amount,
+                hour,
+                transactions_last_24h,
+                device_changed,
+                location_changed,
+                account_age_days,
+                failed_attempts,
+                previous_fraud_count,
+                merchant_risk,
+                is_new_payee
+            ]]
 
 
             input_data = pd.DataFrame(
-                [values],
+                values,
                 columns=FEATURES
             )
 
 
-            probability = float(
-                model.predict_proba(
-                    input_data
-                )[0][1]
+            fraud_probability = model.predict_proba(
+                input_data
+            )[0][1]
+
+
+            probability = round(
+                fraud_probability * 100,
+                2
             )
 
 
-            if probability >= 0.50:
+            if fraud_probability >= 0.50:
 
                 prediction = "FRAUD"
 
@@ -1455,29 +1576,37 @@ def predict():
                 prediction = "LEGITIMATE"
 
 
-            if probability >= 0.75:
+            if fraud_probability >= 0.75:
 
-                risk_level = "HIGH"
+                risk = "HIGH"
 
-            elif probability >= 0.40:
+            elif fraud_probability >= 0.40:
 
-                risk_level = "MEDIUM"
+                risk = "MEDIUM"
 
             else:
 
-                risk_level = "LOW"
+                risk = "LOW"
+
+
+            from datetime import datetime
+
+            timestamp = datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
 
 
             connection = sqlite3.connect(
                 DATABASE_FILE
             )
 
+            cursor = connection.cursor()
 
-            connection.execute(
+
+            cursor.execute(
                 """
                 INSERT INTO transactions (
-
-                    created_at,
+                    timestamp,
                     amount,
                     hour,
                     transactions_last_24h,
@@ -1491,64 +1620,35 @@ def predict():
                     fraud_probability,
                     prediction,
                     risk_level
-
                 )
 
-                VALUES (
-                    datetime('now'),
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
 
                 (
-
+                    timestamp,
                     amount,
-
                     hour,
-
                     transactions_last_24h,
-
                     device_changed,
-
                     location_changed,
-
                     account_age_days,
-
                     failed_attempts,
-
                     previous_fraud_count,
-
                     merchant_risk,
-
                     is_new_payee,
-
-                    probability,
-
+                    fraud_probability,
                     prediction,
-
-                    risk_level
-
+                    risk
                 )
             )
 
 
             connection.commit()
-
             connection.close()
 
 
-            result = {
-
-                "prediction":
-                    prediction,
-
-                "probability":
-                    probability * 100,
-
-                "risk_level":
-                    risk_level
-
-            }
+            result = True
 
 
         except Exception as error:
@@ -1559,16 +1659,28 @@ def predict():
             )
 
 
-    return render_template_string(
-        PREDICT_HTML,
-        css=CSS,
-        result=result
+    content = render_template_string(
+        PREDICT_CONTENT,
+
+        result=result,
+        probability=probability,
+        prediction=prediction,
+        risk=risk
     )
 
 
-# ============================================================
+    return render_template_string(
+        BASE_HTML,
+
+        title="Check Transaction",
+        css=CSS,
+        content=content
+    )
+
+
+# =========================================================
 # HISTORY ROUTE
-# ============================================================
+# =========================================================
 
 @app.route("/history")
 def history():
@@ -1577,73 +1689,76 @@ def history():
         DATABASE_FILE
     )
 
-    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
 
-    transactions = connection.execute(
+
+    cursor.execute(
         """
         SELECT *
         FROM transactions
         ORDER BY id DESC
         """
-    ).fetchall()
+    )
+
+    transactions = cursor.fetchall()
 
     connection.close()
 
-    return render_template_string(
-        HISTORY_HTML,
-        css=CSS,
+
+    content = render_template_string(
+        HISTORY_CONTENT,
+
         transactions=transactions
     )
 
 
-# ============================================================
-# AUTOMATICALLY OPEN BROWSER
-# ============================================================
+    return render_template_string(
+        BASE_HTML,
+
+        title="Transaction History",
+        css=CSS,
+        content=content
+    )
+
+
+# =========================================================
+# LOCAL BROWSER AUTO OPEN
+# =========================================================
 
 def open_browser():
 
-    url = (
-        f"http://{HOST}:{PORT}/"
-    )
-
     webbrowser.open_new(
-        url
+        "http://127.0.0.1:5000/"
     )
 
 
-# ============================================================
-# START APPLICATION
-# ============================================================
+# =========================================================
+# RUN APPLICATION
+# =========================================================
 
 if __name__ == "__main__":
 
     print()
-    print("=" * 60)
-    print("       UPI FRAUD DETECTION SYSTEM")
-    print("=" * 60)
+    print("=" * 55)
+    print("UPI FraudGuard")
+    print("UPI Fraud Detection System")
+    print("=" * 55)
     print()
     print(
-        "Starting application..."
-    )
-    print()
-    print(
-        f"URL: http://{HOST}:{PORT}"
-    )
-    print()
-    print(
-        "Browser will open automatically..."
+        f"Running on http://127.0.0.1:{PORT}"
     )
     print()
 
-    # Open browser after Flask starts
-    threading.Timer(
-        2,
-        open_browser
-    ).start()
 
-    # IMPORTANT:
-    # debug=False prevents the browser from
-    # opening twice.
+    # Open browser only for local development
+    if os.environ.get("RENDER") is None:
+
+        threading.Timer(
+            2,
+            open_browser
+        ).start()
+
+
     app.run(
         host=HOST,
         port=PORT,
