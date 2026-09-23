@@ -534,9 +534,11 @@ DASHBOARD_HTML = """
 
 <head>
 
-<title>UPI Fraud Detection</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-{{ css|safe }}
+    <title>UPI Fraud Detection</title>
+
+    {{ css|safe }}
 
 </head>
 
@@ -773,12 +775,14 @@ PREDICT_HTML = """
 <html>
 
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>Check Transaction</title>
 
 {{ css|safe }}
 
 </head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <body>
 
@@ -1101,12 +1105,14 @@ HISTORY_HTML = """
 <html>
 
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>Transaction History</title>
 
 {{ css|safe }}
 
 </head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <body>
 
